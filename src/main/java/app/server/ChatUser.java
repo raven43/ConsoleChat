@@ -29,7 +29,7 @@ public class ChatUser {
 
     private static int counter = 1;
 
-    ChatUser(Socket socket,Queue<ChatUser> userQ,Queue<ChatUser> agentQ,Queue<ChatUser> clientQ) {
+    ChatUser(Socket socket, Queue<ChatUser> userQ, Queue<ChatUser> agentQ, Queue<ChatUser> clientQ) {
 
         this.socket = socket;
 
@@ -38,16 +38,28 @@ public class ChatUser {
         this.clientQ = clientQ;
 
         this.role = ROLE.USER;
-        this.name = "user#"+(counter++);
+        this.name = "user#" + (counter++);
         this.messageCash = new ConcurrentLinkedQueue();
         this.messageHistory = new ConcurrentLinkedQueue();
         try {
             this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            this.out = new PrintWriter(socket.getOutputStream(),true);
+            this.out = new PrintWriter(socket.getOutputStream(), true);
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+
+    protected ChatUser(Queue<ChatUser> userQ, Queue<ChatUser> agentQ, Queue<ChatUser> clientQ) {
+        this.userQ = userQ;
+        this.agentQ = agentQ;
+        this.clientQ = clientQ;
+
+        this.role = ROLE.USER;
+        this.name = "user#" + (counter++);
+        this.messageCash = new ConcurrentLinkedQueue();
+        this.messageHistory = new ConcurrentLinkedQueue();
+    }
+
 
     public Queue getMessageCash() {
         return messageCash;
@@ -85,7 +97,7 @@ public class ChatUser {
         setCompanion(null);
     }
 
-    public String getMessage()throws IOException {
+    public String getMessage() throws IOException {
         return in.readLine();
     }
 
@@ -106,36 +118,35 @@ public class ChatUser {
         return getCompanion() == null;
     }
 
-    public boolean register(){
-            //get message contains "/register [agent|client] <name>"
-            String registerLine;
-            try {
-                registerLine = getMessage();
-            } catch (IOException e) {
-                log.info("user " + getName() + " disconnect");
-                off();
-                return false;
-            }
-            if (registerLine.contains("/register agent")) {
-                setRole(ROLE.AGENT);
-                if (registerLine.length() > "/register agent ".length())
-                    setName(registerLine.substring(16));
+    public boolean register() {
+        //get message contains "/register [agent|client] <name>"
+        String registerLine;
+        try {
+            registerLine = getMessage();
+        } catch (IOException e) {
+            log.info("user " + getName() + " disconnect");
+            off();
+            return false;
+        }
+        if (registerLine.contains("/register agent")) {
+            setRole(ROLE.AGENT);
+            if (registerLine.length() > "/register agent ".length())
+                setName(registerLine.substring(16));
 
-                log.info("agent " + getName() + " log in");
-                return true;
-            }
-            if (registerLine.contains("/register client")) {
-                setRole(ROLE.CLIENT);
-                if (registerLine.length() > "/register client ".length())
-                    setName(registerLine.substring(17));
-                log.info("client " + getName() + " log in");
-
-                return true;
-            }
-            sendMessage("Something wrong, try again");
+            log.info("agent " + getName() + " log in");
             return true;
         }
+        if (registerLine.contains("/register client")) {
+            setRole(ROLE.CLIENT);
+            if (registerLine.length() > "/register client ".length())
+                setName(registerLine.substring(17));
+            log.info("client " + getName() + " log in");
 
+            return true;
+        }
+        sendMessage("Something wrong, try again");
+        return true;
+    }
 
 
     public synchronized void findCompanion() {
@@ -155,9 +166,7 @@ public class ChatUser {
                 //send info to agent
                 sendMessage("u get client " + companion.name);
                 //send to agent client's message history and cash(if it's exist)
-                Iterator iterator = companion.getMessageHistory().iterator();
-                while (iterator.hasNext())
-                    sendMessage((String) iterator.next());
+                for (Object m : companion.getMessageHistory()) sendMessage((String) m);
 
                 while (!companion.getMessageCash().isEmpty())
                     companion.sendToCompanion((String) companion.getMessageCash().poll());
@@ -182,9 +191,7 @@ public class ChatUser {
                 getCompanion().sendMessage("u get client " + name);
 
                 //send to agent client's message history and cash(if it's exist)
-                Iterator iterator = getMessageHistory().iterator();
-                while (iterator.hasNext())
-                    companion.sendMessage((String) iterator.next());
+                for (Object m : getMessageHistory()) companion.sendMessage((String) m);
                 while (!getMessageCash().isEmpty())
                     sendToCompanion((String) getMessageCash().poll());
 
@@ -194,19 +201,18 @@ public class ChatUser {
         }
     }
 
-    public void leaveChat(String reason){
-        log.info(getRole().str+" "+getName()+" "+reason);
+    public void leaveChat(String reason) {
+        log.info(getRole().str + " " + getName() + " " + reason);
 
         getMessageHistory().clear();
         getMessageCash().clear();
         if (!isFree()) {
-            log.info("Stop  chat btw "+getRole().str+" \'"+getName()+"\' " +
-                    "and "+getCompanion().getRole().str+" \'"+getCompanion().getName()+"\': agent "+reason);
-            getCompanion().sendMessage("Your "+getRole().str+" "+reason);
+            log.info("Stop  chat btw " + getRole().str + " \'" + getName() + "\' " +
+                    "and " + getCompanion().getRole().str + " \'" + getCompanion().getName() + "\': agent " + reason);
+            getCompanion().sendMessage("Your " + getRole().str + " " + reason);
             getCompanion().findCompanion();
             freeCompanion();
-        }
-        else {
+        } else {
             if (getRole() == ROLE.AGENT)
                 agentQ.remove(this);
             if (getRole() == ROLE.CLIENT)
@@ -215,33 +221,30 @@ public class ChatUser {
     }
 
 
-    public void off(){
+    public void off() {
         try {
             userQ.remove(this);
             socket.close();
             in.close();
             out.close();
-        }catch (Exception e){
-            log.error("Error",e);
+        } catch (Exception e) {
+            log.error("Error", e);
         }
 
     }
+
     @Override
     public String toString() {
-        String result = role.str+" "+name+"\n";
-        if(isFree())result+="    companion: null\n";
-        else result+="    companion: "+companion.role.str+" "+companion.name+"\n";
-        if (role==ROLE.CLIENT&&!messageHistory.isEmpty()){
+        String result = role.str + " " + name + "\n";
+        if (isFree()) result += "    companion: null\n";
+        else result += "    companion: " + companion.role.str + " " + companion.name + "\n";
+        if (role == ROLE.CLIENT && !messageHistory.isEmpty()) {
             result = result.concat("    Message history:\n");
-            Iterator iterator = messageHistory.iterator();
-            while (iterator.hasNext())
-                result = result.concat("        "+iterator.next()+"\n");
+            for (Object m : messageHistory) result = result.concat("        " + m + "\n");
         }
-        if (role==ROLE.CLIENT&&!messageCash.isEmpty()){
+        if (role == ROLE.CLIENT && !messageCash.isEmpty()) {
             result = result.concat("    Message cash:\n");
-            Iterator iterator = messageCash.iterator();
-            while (iterator.hasNext())
-                result = result.concat("        "+iterator.next()+"\n");
+            for (Object m : messageCash) result = result.concat("        " + m + "\n");
         }
         return result;
     }

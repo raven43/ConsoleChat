@@ -1,7 +1,5 @@
 package app.server;
 
-import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -10,72 +8,132 @@ import java.net.Socket;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 public class ChatUserTest {
-
-    private ChatUser[] user;
-    private Socket[] socket;
-
-    private int count = 3;
 
     private Queue<ChatUser> userQueue;
     private Queue<ChatUser> agentQueue;
     private Queue<ChatUser> clientQueue;
+    private ChatUser[] users;
 
     @Before
     public void setUp() {
-        user = new ChatUser[2];
         userQueue = new ConcurrentLinkedQueue<ChatUser>();
         agentQueue = new ConcurrentLinkedQueue<ChatUser>();
         clientQueue = new ConcurrentLinkedQueue<ChatUser>();
-    }
 
-    @After
-    public void clear(){
-        user[0].off();
-        user[1].off();
+        users = new ChatUser[2];
     }
 
     @Test
-    public void registerTest() throws IOException{
-        TestSocket agentSocket = new TestSocket("/register agent Smith");
-        TestSocket clientSocket = new TestSocket("/register client Mary");
-        user[0] = new ChatUser(agentSocket,userQueue,agentQueue,clientQueue);
-        user[1] = new ChatUser(clientSocket,userQueue,agentQueue,clientQueue);
+    public void readWriteSocketTest() throws IOException {
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        final ByteArrayInputStream inputStream = new ByteArrayInputStream("message1".getBytes());
+        ChatUser user = new ChatUser(new Socket() {
+            @Override
+            public OutputStream getOutputStream() {
+                return outputStream;
+            }
 
-        user[0].register();
-        user[1].register();
+            @Override
+            public InputStream getInputStream() {
+                return inputStream;
+            }
+        }, userQueue, agentQueue, clientQueue);
+        user.sendMessage("message2");
 
-        Assert.assertEquals(ChatUser.ROLE.AGENT,user[0].getRole());
-        Assert.assertEquals("Smith",user[0].getName());
-        Assert.assertEquals(ChatUser.ROLE.CLIENT,user[1].getRole());
-        Assert.assertEquals("Mary",user[1].getName());
+        assertEquals("message1", user.getMessage());
+        assertEquals("message2\r\n", new String(outputStream.toByteArray()));
     }
 
     @Test
-    public void boundTest() throws IOException{
+    public void registerTest() {
+        ChatUserTestImpl client = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+        ChatUserTestImpl agent = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
 
-        registerTest();
+        client.getFromUserQ().add("/register client Mary");
+        agent.getFromUserQ().add("/register agent Smith");
 
-        user[0].findCompanion();
-        Assert.assertTrue(agentQueue.contains(user[0]));
-        user[1].findCompanion();
+        client.register();
+        assertEquals("Mary", client.getName());
+        assertEquals(ChatUser.ROLE.CLIENT, client.getRole());
 
-        Assert.assertEquals(user[0],user[1].getCompanion());
-        Assert.assertEquals(user[1],user[0].getCompanion());
+        agent.register();
+        assertEquals("Smith", agent.getName());
+        assertEquals(ChatUser.ROLE.AGENT, agent.getRole());
     }
 
     @Test
-    public void ClientLeaveTest() throws IOException{
-        boundTest();
-        user[1].leaveChat("leave");
-        Assert.assertTrue(agentQueue.contains(user[0]));
-    }
-    @Test
-    public void AgentLeaveTest() throws IOException{
-        boundTest();
-        user[0].leaveChat("exit");
-        Assert.assertTrue(clientQueue.contains(user[1]));
+    public void boundTest() {
+        ChatUserTestImpl client = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+        ChatUserTestImpl agent = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+
+        client.getFromUserQ().add("/register client Mary");
+        agent.getFromUserQ().add("/register agent Smith");
+
+        client.register();
+        agent.register();
+
+        client.findCompanion();
+        agent.findCompanion();
+
+        assertEquals(agent, client.getCompanion());
+        assertEquals(client, agent.getCompanion());
     }
 
+    @Test
+    public void ClientLeaveTest() {
+        ChatUserTestImpl client = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+        ChatUserTestImpl agent = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+
+        ChatUserTestImpl anotherClient = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+
+        client.getFromUserQ().add("/register client Mary");
+        agent.getFromUserQ().add("/register agent Smith");
+
+        anotherClient.getFromUserQ().add("/register client Shone");
+
+        client.register();
+        agent.register();
+        anotherClient.register();
+
+        client.findCompanion();
+        agent.findCompanion();
+
+        anotherClient.findCompanion();
+
+        client.leaveChat("leave");
+
+        assertTrue(client.isFree());
+        assertEquals(anotherClient, agent.getCompanion());
+    }
+
+    @Test
+    public void agentLeaveTest() {
+        ChatUserTestImpl client = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+        ChatUserTestImpl agent = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+
+        ChatUserTestImpl anotherAgent = new ChatUserTestImpl(userQueue, agentQueue, clientQueue);
+
+        client.getFromUserQ().add("/register client Mary");
+        agent.getFromUserQ().add("/register agent Smith");
+
+        anotherAgent.getFromUserQ().add("/register agent Cooper");
+
+        client.register();
+        agent.register();
+        anotherAgent.register();
+
+        client.findCompanion();
+        agent.findCompanion();
+        anotherAgent.findCompanion();
+
+        agent.leaveChat("exit");
+
+        assertTrue(client.isFree());
+        assertEquals(anotherAgent, client.getCompanion());
+    }
 
 }
